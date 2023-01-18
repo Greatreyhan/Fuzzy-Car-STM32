@@ -26,7 +26,16 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct{
+	uint8_t A;
+	uint8_t B;
+	uint8_t C;
+	uint8_t D;
+	uint8_t E;
+	uint8_t F;
+	uint8_t G;
+	uint8_t H;
+}obstacle_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -39,7 +48,17 @@
 #define ENA GPIO_PIN_0
 #define ENB GPIO_PIN_1
 
-#define INPORT GPIOA
+#define IN5 GPIO_PIN_6
+#define IN6 GPIO_PIN_7
+#define IN7 GPIO_PIN_0
+#define IN8 GPIO_PIN_1
+#define ENC GPIO_PIN_10
+#define END GPIO_PIN_11
+
+#define INPORTA GPIOA
+#define INPORTB GPIOB
+
+int speedControl = 50;
 
 /* USER CODE END PD */
 
@@ -52,6 +71,8 @@
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart3_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -60,8 +81,10 @@ UART_HandleTypeDef huart1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -70,40 +93,42 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN 0 */
 
 uint8_t rxBuf[1] = {0};
-
+uint8_t data[1] = {0};
+obstacle_t car;
 void Run_Stop(void){
-	HAL_GPIO_WritePin(INPORT, IN1, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN2, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN3, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN4, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
 }
 
 void Run_Mundur(void){
-	HAL_GPIO_WritePin(INPORT, IN1, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN2, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORT, IN3, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORT, IN4, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
 }
 
 void Run_Maju(void){
-	HAL_GPIO_WritePin(INPORT, IN1, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORT, IN2, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN3, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN4, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_SET);
 }
 
 void Run_Kanan(void){
-	HAL_GPIO_WritePin(INPORT, IN1, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN2, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORT, IN3, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN4, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
 }
 
 void Run_Kiri(void){
-	HAL_GPIO_WritePin(INPORT, IN1, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORT, IN2, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORT, IN3, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORT, IN4, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_SET);
+	
 }
 
 void Speed_Servo_A(int duty_cycle){
@@ -116,26 +141,72 @@ void Speed_Servo_B(int duty_cycle){
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 }
 
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-			if(rxBuf[0] == 'G'){
-				Run_Stop();
+//	if(huart->Instance == USART1){
+//			if(rxBuf[0] == 'G'){
+//				Run_Stop();
+//			}
+//			else if(rxBuf[0] == 'B'){
+//				Run_Maju();
+//			}
+//			else if(rxBuf[0] == 'D'){
+//				Run_Mundur();
+//			}
+//			else if(rxBuf[0] == 'A'){
+//				Run_Kiri();
+//			}
+//			else if(rxBuf[0] == 'C'){
+//				Run_Kanan();
+//			}
+//			else if(rxBuf[0] == 'H'){
+//				speedControl+= 5;
+//				Speed_Servo_A(speedControl);
+//				Speed_Servo_B(speedControl);
+//			}
+//			else if(rxBuf[0] == 'I'){
+//				speedControl-= 5;
+//				Speed_Servo_A(speedControl);
+//				Speed_Servo_B(speedControl);
+//			}
+//		}
+//	
+		if(huart->Instance == USART3){
+			
+			
+			car.A = (data[0] & 0x01);
+			car.B = ((data[0] >> 0x02) & 0x01);
+			car.C = ((data[0] >> 0x03) & 0x01);
+			car.D = ((data[0] >> 0x04) & 0x01);
+			car.E = ((data[0] >> 0x05) & 0x01);
+			car.F = ((data[0] >> 0x06) & 0x01);
+			car.G = ((data[0] >> 0x07) & 0x01);
+			car.H = ((data[0] >> 0x08) & 0x01);
+			
+			if(car.A || car.H){
+				if(car.B || car.C){
+					Speed_Servo_A(100);
+					Speed_Servo_B(100);
+					Run_Kanan();
+				}
+				else if(car.G || car.H){
+					Speed_Servo_A(100);
+					Speed_Servo_B(100);
+					Run_Kiri();
+				}
 			}
-			else if(rxBuf[0] == 'B'){
+			else{
+				Speed_Servo_A(50);
+				Speed_Servo_B(50);
 				Run_Maju();
 			}
-			else if(rxBuf[0] == 'D'){
-				Run_Mundur();
-			}
-			else if(rxBuf[0] == 'A'){
-				Run_Kiri();
-			}
-			else if(rxBuf[0] == 'C'){
-				Run_Kanan();
-			}
+
+		}
 	
 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_12);
-  HAL_UART_Receive_IT(&huart1, rxBuf, 1 );
+//  HAL_UART_Receive_IT(&huart1, rxBuf, 1 );
+	HAL_UART_Receive_DMA(&huart3, data, 1 );
 }
 
 /* USER CODE END 0 */
@@ -168,19 +239,24 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 	
-	HAL_UART_Receive_IT(&huart1, rxBuf, 1);
-	Speed_Servo_A(100);
-	Speed_Servo_B(100);
+	Speed_Servo_A(speedControl);
+	Speed_Servo_B(speedControl);
+//	HAL_UART_Receive_IT(&huart1, rxBuf, 1);
+	HAL_UART_Receive_DMA(&huart3, data, 1);
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
+   while (1)
   {
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -319,6 +395,55 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
 
 }
 
