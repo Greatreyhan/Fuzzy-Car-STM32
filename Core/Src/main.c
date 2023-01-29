@@ -21,44 +21,19 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "pid.h"
+#include "Ping_driver.h"
+#include "DWT_Delay.h"
+#include "L298N_driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef struct{
-	uint8_t A;
-	uint8_t B;
-	uint8_t C;
-	uint8_t D;
-	uint8_t E;
-	uint8_t F;
-	uint8_t G;
-	uint8_t H;
-}obstacle_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-#define IN1 GPIO_PIN_2
-#define IN2 GPIO_PIN_3
-#define IN3 GPIO_PIN_4
-#define IN4 GPIO_PIN_5
-#define ENA GPIO_PIN_0
-#define ENB GPIO_PIN_1
-
-#define IN5 GPIO_PIN_6
-#define IN6 GPIO_PIN_7
-#define IN7 GPIO_PIN_0
-#define IN8 GPIO_PIN_1
-#define ENC GPIO_PIN_10
-#define END GPIO_PIN_11
-
-#define INPORTA GPIOA
-#define INPORTB GPIOB
-
-int speedControl = 50;
 
 /* USER CODE END PD */
 
@@ -92,122 +67,70 @@ static void MX_USART3_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+// UART variable
 uint8_t rxBuf[1] = {0};
 uint8_t data[1] = {0};
-obstacle_t car;
-void Run_Stop(void){
-	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
-}
 
-void Run_Mundur(void){
-	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
-}
+// L298N Variable
+car_t car;
+obstacle_t obs;
 
-void Run_Maju(void){
-	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_SET);
-}
+// Value PING
+double depan, kanan, kiri, value;
+Ping_t ping_depan;
+Ping_t ping_kanan;
+Ping_t ping_kiri;
 
-void Run_Kanan(void){
-	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
-}
+// PID 
+PID_TypeDef hPID;
+double PID_output, ping_setpoint;
 
-void Run_Kiri(void){
-	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_SET);
-	
-}
-
-void Speed_Servo_A(int duty_cycle){
-	TIM2->CCR1 = (duty_cycle*500/100);
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-}
-
-void Speed_Servo_B(int duty_cycle){
-	TIM2->CCR2 = (duty_cycle*500/100);
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
-}
-
-
+// UART CALLBACK
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-//	if(huart->Instance == USART1){
-//			if(rxBuf[0] == 'G'){
-//				Run_Stop();
-//			}
-//			else if(rxBuf[0] == 'B'){
-//				Run_Maju();
-//			}
-//			else if(rxBuf[0] == 'D'){
-//				Run_Mundur();
-//			}
-//			else if(rxBuf[0] == 'A'){
-//				Run_Kiri();
-//			}
-//			else if(rxBuf[0] == 'C'){
-//				Run_Kanan();
-//			}
-//			else if(rxBuf[0] == 'H'){
-//				speedControl+= 5;
-//				Speed_Servo_A(speedControl);
-//				Speed_Servo_B(speedControl);
-//			}
-//			else if(rxBuf[0] == 'I'){
-//				speedControl-= 5;
-//				Speed_Servo_A(speedControl);
-//				Speed_Servo_B(speedControl);
-//			}
-//		}
-//	
+	if(huart->Instance == USART1){
+		if(rxBuf[0] == 'G'){
+				Run_Stop();
+			}
+			else if(rxBuf[0] == 'B'){
+				Run_Maju_Speed(car, 60);
+			}
+			else if(rxBuf[0] == 'D'){
+				Run_Mundur_Speed(car,60);
+			}
+			else if(rxBuf[0] == 'A'){
+				Run_Kiri_Speed(car, 80, 30);
+			}
+			else if(rxBuf[0] == 'C'){
+				Run_Kanan_Speed(car, 80, 30);
+			}
+			else if(rxBuf[0] == 'G'){
+			}
+			else if(rxBuf[0] == 'I'){
+			}
+			else if(rxBuf[0] == 'H'){
+				car.speedA+= 5;
+				car.speedB+= 5;
+				Speed_Servo_A(car);
+				Speed_Servo_B(car);
+			}
+			else if(rxBuf[0] == 'J'){
+				car.speedA-= 5;
+				car.speedB-= 5;
+				Speed_Servo_A(car);
+				Speed_Servo_B(car);
+			}
+		}
+	
 		if(huart->Instance == USART3){
-			
-			
-			car.A = (data[0] & 0x01);
-			car.B = ((data[0] >> 0x02) & 0x01);
-			car.C = ((data[0] >> 0x03) & 0x01);
-			car.D = ((data[0] >> 0x04) & 0x01);
-			car.E = ((data[0] >> 0x05) & 0x01);
-			car.F = ((data[0] >> 0x06) & 0x01);
-			car.G = ((data[0] >> 0x07) & 0x01);
-			car.H = ((data[0] >> 0x08) & 0x01);
-			
-			if(car.A || car.H){
-				if(car.B || car.C){
-					Speed_Servo_A(100);
-					Speed_Servo_B(100);
-					Run_Kanan();
-				}
-				else if(car.G || car.H){
-					Speed_Servo_A(100);
-					Speed_Servo_B(100);
-					Run_Kiri();
-				}
-			}
-			else{
-				Speed_Servo_A(50);
-				Speed_Servo_B(50);
-				Run_Maju();
-			}
-
+			handler_lidar(car, obs, rxBuf[0]);
 		}
 	
 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_12);
 //  HAL_UART_Receive_IT(&huart1, rxBuf, 1 );
-	HAL_UART_Receive_DMA(&huart3, data, 1 );
+//	HAL_UART_Receive_DMA(&huart3, data, 1 );
 }
+
 
 /* USER CODE END 0 */
 
@@ -245,18 +168,67 @@ int main(void)
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 	
-	Speed_Servo_A(speedControl);
-	Speed_Servo_B(speedControl);
-//	HAL_UART_Receive_IT(&huart1, rxBuf, 1);
-	HAL_UART_Receive_DMA(&huart3, data, 1);
+	//--------------------------------------- KONFIGURASI PING ---------------------------------------------
+	DWT_Delay_Init();
+	ping_depan.PING_PORT = GPIOA;
+	ping_depan.PING_PIN = GPIO_PIN_7;
+	ping_kanan.PING_PORT = GPIOA;
+	ping_kanan.PING_PIN = GPIO_PIN_6;
+	ping_kiri.PING_PORT = GPIOB;
+	ping_kiri.PING_PIN = GPIO_PIN_0;
 	
+	//--------------------------------------- KONFIGURASI L298N --------------------------------------------
+	car.tim = &htim2;
+	car.tim_numA = TIM2;
+	car.tim_numB = TIM2;
+	car.channelA = 1;
+	car.channelB = 2;
+//	HAL_UART_Receive_IT(&huart1, rxBuf, 1);
+//	HAL_UART_Receive_DMA(&huart3, data, 1);
+
+	//---------------------------------------- PID ---------------------------------------------------------
+	ping_setpoint = 10;
+	PID(&hPID, &value, &PID_output, &ping_setpoint, 3, 0, 0, PID_PROPOTIONAL_ERROR, PID_CONTROL_DIRECTION_FORWARD);
+	PID_SetMode(&hPID, PID_AUTOMATIC_MODE);
+  PID_SetSampleTime(&hPID, 50);
+  PID_SetOutputLimits(&hPID, -50, 50);
+
+	// ----------------------- TEST -----------------------------------------------
+	HAL_Delay(1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
    while (1)
   {
-
+		// ----------------------- TEST -----------------------------------------------
+		
+		// ---------------------- GET VALUE OF PING -----------------------------------
+		value = ping_read(ping_kanan);
+		kiri = ping_read(ping_kiri);
+		depan = ping_read(ping_depan);
+		HAL_Delay(70);
+		PID_Compute(&hPID);
+		
+		// ---------------------- Control the steering --------------------------------
+		if(depan < 10){
+			Run_Stop(); 
+			Run_Mundur_Speed(car, 40);
+			HAL_Delay(500);
+			Rotate_Kiri(car, 80);
+			HAL_Delay(800);
+			Run_Maju_Speed(car, 40);
+		}
+		else if(PID_output > 0){
+			// Ke Kiri
+			Run_Maju_Speed_Manual(car, 40 - PID_output , 40 + PID_output);
+		}
+		else if(PID_output < 0){
+			// Ke Kanan
+			Run_Maju_Speed_Manual(car, 40 + (PID_output*-1) , 40 - (PID_output*-1));
+		}
+		else Run_Maju_Speed_Manual(car, 40, 40);
+		
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -461,13 +433,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5
+                          |GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA2 PA3 PA4 PA5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5;
+  /*Configure GPIO pins : PA2 PA3 PA4 PA5
+                           PA6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5
+                          |GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
