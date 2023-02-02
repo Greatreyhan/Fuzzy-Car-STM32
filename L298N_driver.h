@@ -66,4 +66,5 @@ void Speed_Servo_A(car_t car);
 void Speed_Servo_B(car_t car);
 bool handler_receiver(car_t car, uint8_t msg);
 bool handler_lidar(car_t car, obstacle_t obs, uint8_t msg);
+void Stopper_run(car_t car);
 #endif

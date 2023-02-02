@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "pid.h"
+#include "lcd16x2_i2c.h"
+#include "Fuzzy.h"
 #include "Ping_driver.h"
 #include "DWT_Delay.h"
 #include "L298N_driver.h"
@@ -43,6 +44,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
@@ -60,6 +63,7 @@ static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -81,53 +85,49 @@ Ping_t ping_depan;
 Ping_t ping_kanan;
 Ping_t ping_kiri;
 
-// PID 
-PID_TypeDef hPID;
-double PID_output, ping_setpoint;
+// Fuzzy
+Fuzzy_input_t input_fuzzy;
+Fuzzy_output_t output_fuzzy;
+Fuzzy_fuzzyfication_t fuz_fic_input;
+Fuzzy_fuzzyfication_t fuz_fic_output;
+Fuzzy_defuz_t defuzA;
+Fuzzy_defuz_t defuzB;
+double res_kanan, res_kiri;
+bool isKanan = false, isKiri = false;
+
 
 // UART CALLBACK
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart->Instance == USART1){
 		if(rxBuf[0] == 'G'){
-				Run_Stop();
-			}
-			else if(rxBuf[0] == 'B'){
-				Run_Maju_Speed(car, 60);
-			}
-			else if(rxBuf[0] == 'D'){
-				Run_Mundur_Speed(car,60);
-			}
-			else if(rxBuf[0] == 'A'){
-				Run_Kiri_Speed(car, 80, 30);
-			}
-			else if(rxBuf[0] == 'C'){
-				Run_Kanan_Speed(car, 80, 30);
-			}
-			else if(rxBuf[0] == 'G'){
-			}
-			else if(rxBuf[0] == 'I'){
-			}
-			else if(rxBuf[0] == 'H'){
-				car.speedA+= 5;
-				car.speedB+= 5;
-				Speed_Servo_A(car);
-				Speed_Servo_B(car);
-			}
-			else if(rxBuf[0] == 'J'){
-				car.speedA-= 5;
-				car.speedB-= 5;
-				Speed_Servo_A(car);
-				Speed_Servo_B(car);
-			}
+
 		}
-	
-		if(huart->Instance == USART3){
-			handler_lidar(car, obs, rxBuf[0]);
+		else if(rxBuf[0] == 'H'){
+
 		}
+		else if(rxBuf[0] == 'I'){
+
+		}
+		else if(rxBuf[0] == 'Y'){
+			car.tim = &htim2;
+			isKanan = true;
+			isKiri= false;
+		}
+		else if(rxBuf[0] == 'X'){
+			car.tim = &htim2;
+			isKanan = false;
+			isKiri = true;
+		}
+		else if(rxBuf[0] == 'J'){
+			NVIC_SystemReset();
+			Stopper_run(car);
+			HAL_TIM_PWM_Stop(car.tim, TIM_CHANNEL_1);
+		}
+	}
 	
 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_12);
-//  HAL_UART_Receive_IT(&huart1, rxBuf, 1 );
+  HAL_UART_Receive_IT(&huart1, rxBuf, 1 );
 //	HAL_UART_Receive_DMA(&huart3, data, 1 );
 }
 
@@ -166,7 +166,14 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+	//-------------------------------------------- LCD -----------------------------------------------------
+	if(lcd16x2_i2c_init(&hi2c1)){
+		lcd16x2_i2c_clear();
+		lcd16x2_i2c_1stLine();
+		lcd16x2_i2c_printf("Baracuda");
+	}
 	
 	//--------------------------------------- KONFIGURASI PING ---------------------------------------------
 	DWT_Delay_Init();
@@ -178,37 +185,58 @@ int main(void)
 	ping_kiri.PING_PIN = GPIO_PIN_0;
 	
 	//--------------------------------------- KONFIGURASI L298N --------------------------------------------
-	car.tim = &htim2;
+	
 	car.tim_numA = TIM2;
 	car.tim_numB = TIM2;
 	car.channelA = 1;
 	car.channelB = 2;
-//	HAL_UART_Receive_IT(&huart1, rxBuf, 1);
-//	HAL_UART_Receive_DMA(&huart3, data, 1);
+	HAL_UART_Receive_IT(&huart1, rxBuf, 1);
 
-	//---------------------------------------- PID ---------------------------------------------------------
-	ping_setpoint = 10;
-	PID(&hPID, &value, &PID_output, &ping_setpoint, 3, 0, 0, PID_PROPOTIONAL_ERROR, PID_CONTROL_DIRECTION_FORWARD);
-	PID_SetMode(&hPID, PID_AUTOMATIC_MODE);
-  PID_SetSampleTime(&hPID, 50);
-  PID_SetOutputLimits(&hPID, -50, 50);
+	//---------------------------------------- Fuzzy ---------------------------------------------------------
+	fuzzy_set_membership_input(&input_fuzzy, 3, 8, 13);
+	fuzzy_set_membership_output(&output_fuzzy, -25, 0, 25);
 
 	// ----------------------- TEST -----------------------------------------------
-	HAL_Delay(1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
    while (1)
   {
-		// ----------------------- TEST -----------------------------------------------
+		// ----------------------- LCD -----------------------------------------------
+		if(!isKanan && !isKiri){
+			lcd16x2_i2c_clear();
+			lcd16x2_i2c_1stLine();
+		}
+		else if(isKanan){
+			lcd16x2_i2c_clear();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf("State Kanan");
+		}
+		else if(isKiri){
+			lcd16x2_i2c_clear();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf("State Kiri");
+		}
+		else{
+			lcd16x2_i2c_clear();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf("NO STATE!");
+		}
 		
 		// ---------------------- GET VALUE OF PING -----------------------------------
-		value = ping_read(ping_kanan);
+		kanan = ping_read(ping_kanan);
 		kiri = ping_read(ping_kiri);
 		depan = ping_read(ping_depan);
 		HAL_Delay(70);
-		PID_Compute(&hPID);
+		
+		//------------------------- Fuzzy ---------------------------------------------
+		fuzzy_fuzfication_input(&input_fuzzy, &fuz_fic_input, kanan);
+		fuzzy_logic_rule(&output_fuzzy, &fuz_fic_input, &defuzA, FUZZY_MIN_TO_MAX);
+		res_kanan = fuzzy_defuz(&defuzA,&fuz_fic_input);
+		fuzzy_fuzfication_input(&input_fuzzy, &fuz_fic_input, kiri);
+		fuzzy_logic_rule(&output_fuzzy, &fuz_fic_input, &defuzA, FUZZY_MIN_TO_MAX);
+		res_kiri = fuzzy_defuz(&defuzA,&fuz_fic_input);
 		
 		// ---------------------- Control the steering --------------------------------
 		if(depan < 10){
@@ -219,13 +247,23 @@ int main(void)
 			HAL_Delay(800);
 			Run_Maju_Speed(car, 40);
 		}
-		else if(PID_output > 0){
+		// State Kanan
+		else if((res_kanan > 0) && isKanan){
 			// Ke Kiri
-			Run_Maju_Speed_Manual(car, 40 - PID_output , 40 + PID_output);
+			Run_Maju_Speed_Manual(car, 40 - res_kanan , 40 + res_kanan);
 		}
-		else if(PID_output < 0){
+		else if((res_kanan < 0) && isKanan){
 			// Ke Kanan
-			Run_Maju_Speed_Manual(car, 40 + (PID_output*-1) , 40 - (PID_output*-1));
+			Run_Maju_Speed_Manual(car, 40 + (res_kanan*-1) , 40 - (res_kanan*-1));
+		}
+		// State Kiri
+		else if((res_kiri > 0) && isKiri){
+			// Ke Kanan
+			Run_Maju_Speed_Manual(car, 40 + (res_kiri*-1) , 40 - (res_kiri*-1));
+		}
+		else if((res_kiri < 0) && isKiri){
+			// Ke Kiri
+			Run_Maju_Speed_Manual(car, 40 - res_kiri , 40 + res_kiri);
 		}
 		else Run_Maju_Speed_Manual(car, 40, 40);
 		
@@ -248,12 +286,13 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -272,6 +311,40 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -429,6 +502,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 

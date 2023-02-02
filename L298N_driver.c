@@ -121,6 +121,19 @@ void Run_Mundur_Speed(car_t car, double speed_backward){
 	Speed_Servo_A(car);
 }
 
+void Stopper_run(car_t car){
+	car.tim = NULL;
+	car.tim_numA = NULL;
+	car.tim_numB = NULL;
+	HAL_GPIO_WritePin(INPORTA, IN1, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN2, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN3, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(INPORTA, IN4, GPIO_PIN_RESET);
+	car.speedB = 0;
+	car.speedA = 0;
+	Speed_Servo_B(car);
+	Speed_Servo_A(car);
+}
 
 void Speed_Servo_A(car_t car){
 	if(car.channelA == 0x01){
